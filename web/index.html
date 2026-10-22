@@ -1,0 +1,55 @@
+<!doctype html><html><head><meta charset="utf-8"><title>CloseCall · Alexa+ simulator</title>
+<style>
+body{margin:0;font-family:system-ui,Segoe UI,Helvetica,Arial;background:#0b1320;color:#e8eef7}
+header{padding:18px 28px;border-bottom:1px solid #1f2b40;display:flex;justify-content:space-between;align-items:center}
+h1{margin:0;font-size:22px}.sub{color:#8fa3bf;font-size:13px}
+main{display:grid;grid-template-columns:1.1fr 1fr;gap:22px;padding:22px 28px}
+.panel{background:#121c2e;border:1px solid #1f2b40;border-radius:14px;padding:18px}
+.ring{width:84px;height:84px;border-radius:50%;margin:6px auto 14px;border:6px solid #1f2b40;transition:.3s}
+.ring.on{border-color:#00caff;box-shadow:0 0 28px #00caff}
+.bubble{padding:10px 14px;border-radius:12px;margin:8px 0;max-width:92%;line-height:1.4}
+.you{background:#24324d;margin-left:auto}.alexa{background:#0d3b52;border:1px solid #145a7a}
+#log{height:380px;overflow:auto}
+form{display:flex;gap:8px;margin-top:10px}input{flex:1;padding:12px;border-radius:10px;border:1px solid #2a3a57;background:#0b1320;color:#fff;font-size:15px}
+button{padding:10px 14px;border-radius:10px;border:0;background:#00caff;color:#002233;font-weight:600;cursor:pointer}
+.chips button{background:#1f2b40;color:#cfe3ff;font-weight:500;margin:4px 4px 0 0;font-size:13px}
+.card{background:#0b1320;border:1px solid #2a3a57;border-radius:10px;padding:12px;margin-bottom:10px;font-size:14px}
+.card h3{margin:0 0 6px;font-size:14px;color:#7fdcff}
+table{width:100%;border-collapse:collapse}td{padding:3px 4px;border-bottom:1px solid #1f2b40}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:12px}
+.posted{background:#0f5132}.pending_cfo_approval{background:#664d03}.denied_over_limit{background:#842029}.open{background:#664d03}
+.trail{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:#9fb3cf}
+</style></head><body>
+<header><div><h1>CloseCall</h1><div class="sub">Alexa+ simulator · self-hosted MCP server (2025-11-25, Streamable HTTP) · Harbor &amp; Pine Outfitters (demo fixture)</div></div>
+<div class="sub" id="sess">session —</div></header>
+<main>
+<section class="panel"><div class="ring" id="ring"></div><div id="log"></div>
+<form id="f"><input id="u" placeholder='Try: "Alexa, what is blocking the October close?"' autocomplete="off"><button>Ask</button><button type="button" id="mic">🎤</button></form>
+<div class="chips" id="chips"></div></section>
+<section class="panel"><div id="cards"><div class="sub">Cards and the MCP tool trail appear here.</div></div><div class="trail" id="trail"></div></section>
+</main>
+<script>
+const chips=["Give me my morning close briefing","Why is freight over budget?","Accrue $3,200 for freight","Book a $18,400 freight accrual for the week 4 carrier invoice","Approve it","What's my cash runway?","Show the audit trail"];
+const $=id=>document.getElementById(id);
+chips.forEach(c=>{const b=document.createElement('button');b.textContent=c;b.onclick=()=>ask(c);$('chips').appendChild(b)});
+function bubble(t,cls){const d=document.createElement('div');d.className='bubble '+cls;d.textContent=t;$('log').appendChild(d);$('log').scrollTop=1e9}
+const f=n=>'$'+Math.round(n).toLocaleString();
+function card(c){const d=c.data;let h='';
+ if(c.tool==='close_status')h=`<h3>Close ${d.period}: ${d.done}/${d.total} done</h3><table>`+d.open.map(t=>`<tr><td>${t.name}</td><td>${t.owner}</td><td><span class="pill open">blocked</span></td></tr><tr><td colspan=3 class="sub">${t.blocker}</td></tr>`).join('')+'</table>';
+ else if(c.tool==='top_variances')h='<h3>Top variances vs budget</h3><table>'+d.rows.map(r=>`<tr><td>${r.account}</td><td>${r.variance>0?'+':''}${f(r.variance)}</td><td>${r.variance_pct}%</td></tr>`).join('')+'</table>';
+ else if(c.tool==='variance_explain')h=`<h3>${d.account}: ${f(d.actual)} vs ${f(d.budget)} budget (${d.variance_pct}%)</h3><ul>`+d.drivers.map(x=>`<li>${x}</li>`).join('')+'</ul>';
+ else if(c.tool==='accrual_propose'){const e=d.entry;h=`<h3>Journal entry ${e.hash}</h3>${e.account} accrual ${f(e.amount)} <span class="pill ${e.state}">${e.state.replaceAll('_',' ')}</span><div class="sub">prev ${e.prev}</div>`}
+ else if(c.tool==='approve_entry')h=`<h3>Approved ${d.ref||''}</h3><span class="pill posted">posted</span>`;
+ else if(c.tool==='cash_runway')h=`<h3>Cash ${f(d.balance)} · ${d.runway_months} months runway</h3>AR due 30d ${f(d.ar_due_30d)} · AP due 30d ${f(d.ap_due_30d)}<br>Projected in 30 days: <b>${f(d.projected_30d)}</b>`;
+ else if(c.tool==='audit_trail')h='<h3>Hash-linked audit trail</h3><table>'+(d.entries||[]).map(e=>`<tr><td>${e.hash}</td><td>${e.type}</td><td>${e.amount?f(e.amount):e.ref||''}</td><td>${e.state}</td></tr>`).join('')+'</table>';
+ else h='<h3>'+c.tool+'</h3><span class="sub">error</span>';
+ return `<div class="card">${h}</div>`}
+async function ask(u){bubble(u,'you');$('ring').classList.add('on');
+ const r=await (await fetch('/api/say',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({utterance:u})})).json();
+ bubble(r.speech,'alexa');$('cards').innerHTML=r.cards.map(card).join('');
+ $('trail').innerHTML='MCP tools/call · planner: '+r.planner+'<br>'+r.trail.map(t=>`→ ${t.tool}(${JSON.stringify(t.args)}) ${t.isError?'✗':'✓'}`).join('<br>');
+ $('sess').textContent='Mcp-Session-Id '+(r.session||'').slice(0,8)+'…';
+ if(window.speechSynthesis&&!window.SILENT){const s=new SpeechSynthesisUtterance(r.speech);s.onend=()=>$('ring').classList.remove('on');speechSynthesis.speak(s)}else setTimeout(()=>$('ring').classList.remove('on'),900)}
+$('f').onsubmit=e=>{e.preventDefault();const v=$('u').value.trim();if(v){ask(v);$('u').value=''}};
+$('mic').onclick=()=>{const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return alert('Speech recognition not supported in this browser');const r=new R();r.onresult=e=>ask(e.results[0][0].transcript);r.start()};
+</script></body></html>
